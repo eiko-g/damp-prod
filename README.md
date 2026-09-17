@@ -8,11 +8,11 @@
 # 复制一份配置
 mv .env.example .env
 # Docker，启动！
-docker compose up -d
+sudo docker compose up -d
 # 更新镜像
-docker compose pull
+sudo docker compose pull
 # 重新构建 PHP 的镜像
-docker compose build
+sudo docker compose build
 ```
 
 PHP 的默认时区为 `Asia/Shanghai`。
@@ -38,7 +38,7 @@ PHP 安装的扩展：
 进 Docker 系统的 bash：
 
 ```bash
-docker compose exec www bash
+sudo docker compose exec www bash
 ```
 
 ## MariaDB
