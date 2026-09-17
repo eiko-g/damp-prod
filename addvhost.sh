@@ -3,20 +3,18 @@
 set -euo pipefail
 
 # 检查是否以 root 权限运行
-if [ "$(id -u)" -ne 0 ]; then
-  echo "⚠️ 请使用 root 权限运行此脚本"
-  exit 1
+# if [ "$(id -u)" -ne 0 ]; then
+#   echo "⚠️ 请使用 root 权限运行此脚本"
+#   exit 1
+# fi
+sudo -v &>/dev/null
+if [ $? != 0 ]; then
+  echo "$(whoami) is not sudo user"
+  exit -1
+else
+  echo "$(whoami) is sudo user"
 fi
 
-# 检查 acme.sh 是否已安装
-ACME_BIN=""
-if command -v acme.sh >/dev/null 2>&1; then
-  ACME_BIN="$(command -v acme.sh)"
-elif [ -f "$HOME/.acme.sh/acme.sh" ]; then
-  ACME_BIN="$HOME/.acme.sh/acme.sh"
-else
-  echo "⚠️ 未检测到 acme.sh，将跳过签发证书部分"
-fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VHOST_DIR="$ROOT_DIR/userdata/httpd_conf/vhosts"
@@ -78,10 +76,16 @@ else
   docker compose exec www apachectl -k graceful
 fi
 
-if [ $ACME_BIN == '' ]
-  echo "已生成 vhost 配置：${VHOST_FILE}"
-  exit 1
-if
+# 检查 acme.sh 是否已安装
+ACME_BIN=""
+if command -v acme.sh >/dev/null 2>&1; then
+  ACME_BIN="$(command -v acme.sh)"
+elif [ -f "$HOME/.acme.sh/acme.sh" ]; then
+  ACME_BIN="$HOME/.acme.sh/acme.sh"
+else
+  echo "⚠️ 未检测到 acme.sh，跳过证书申请步骤"
+  echo "✅ 已生成 vhost 配置：${VHOST_FILE}"
+fi
 
 echo "ℹ️ 申请证书"
 # 生成证书
@@ -124,8 +128,8 @@ cat > "$VHOST_FILE" <<EOF
         Require all granted
     </Directory>
 
-    ErrorLog "${ERROR_LOG} 5M"
-    CustomLog "${ACCESS_LOG} 5M" combined
+#    ErrorLog "${ERROR_LOG} 5M"
+#    CustomLog "${ACCESS_LOG} 5M" combined
 </VirtualHost>
 EOF
 

@@ -17,7 +17,7 @@ sudo docker compose build
 
 PHP 的默认时区为 `Asia/Shanghai`。
 
-建议安装 [acme.sh](https://github.com/acmesh-official/acme.sh/wiki/%E8%AF%B4%E6%98%8E)，然后使用 `sudo ./addvhost.sh` 来添加虚拟主机配置。
+建议安装 [acme.sh](https://github.com/acmesh-official/acme.sh/wiki/%E8%AF%B4%E6%98%8E)，然后使用 `sudo -u <当前用户名> ./addvhost.sh` 来 **以当前用户权限** 添加虚拟主机配置。
 
 ## PHP-Apache
 具体配置基本在 `./dockerfile` 里了，使用 `8.5`，安装 `composer`，默认使用 `php.ini-production` 配置。
