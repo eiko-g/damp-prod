@@ -1,0 +1,108 @@
+services:
+  db:
+    image: mariadb:lts
+    restart: unless-stopped
+    container_name: "damp-mariadb-lts"
+    ports:
+      - "127.0.0.1:${MARIADB_PORT}:3306"
+    # 设置 UID 和 GID，不然权限出错
+    user: "1000:1000"
+    environment:
+      # MARIADB_DATABASE: ${MARIADB_DATABASE}
+      # MARIADB_USER: ${MARIADB_USER}
+      # MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      # 随机 root 密码，跟指定密码选一个开，生成的密码似乎会写在 log 里，见：
+      # https://hub.docker.com/_/mariadb#starting-using-a-minimal-configuration
+      # MARIADB_RANDOM_ROOT_PASSWORD: 1
+    volumes:
+      # 预制数据库，新安装的可以丢这里自动加载
+      - ./userdata/sql_dump:/docker-entrypoint-initdb.d:ro
+      # 自定义配置，以 .cnf 结尾，详见：
+      # https://hub.docker.com/_/mariadb#using-a-custom-mariadb-configuration-file
+      - ./userdata/sql_conf:/etc/mysql/conf.d:ro
+      # 数据库的数据
+      - ./userdata/sql_data:/var/lib/mysql
+      # 数据库的日志
+      - ./logs/sql_log:/var/log/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  www:
+    build:
+      # 意思就是读根目录的 dockerfile 来 build
+      context: .
+      args:
+        PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT}
+        PHP_MAX_EXECUTION_TIME: ${PHP_MAX_EXECUTION_TIME}
+        PHP_UPLOAD_MAX_FILESIZE: ${PHP_UPLOAD_MAX_FILESIZE}
+        PHP_POST_MAX_SIZE: ${PHP_POST_MAX_SIZE}
+        PHP_TIMEZONE: ${PHP_TIMEZONE}
+    restart: unless-stopped
+    container_name: "damp-php85-apache"
+    environment:
+      MARIADB_HOST: db
+      # MARIADB_DATABASE: ${MARIADB_DATABASE}
+      # MARIADB_USER: ${MARIADB_USER}
+      # MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+    ports:
+      - "0.0.0.0:${APACHE_PORT}:80"
+      - "0.0.0.0:${APACHE_PORT_SSL}:443"
+    volumes:
+      # 网站目录
+      - ./userdata/wwwroot:/var/www/html
+      # 证书放这里
+      - ./userdata/httpd_conf/ssl:/etc/apache2/ssl/
+      # 多站点配置
+      - ./userdata/httpd_conf/vhosts:/etc/apache2/sites-enabled
+      # 好像设置了日志目录会爆炸，先不用了
+      # - ./logs/httpd_log:/var/log/apache2
+    depends_on:
+      - db
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+  # 写是写了，但是先不用
+  # phpmyadmin:
+  #   image: phpmyadmin:latest
+  #   restart: unless-stopped
+  #   container_name: "damp-pma"
+  #   environment:
+  #     PMA_HOST: ${PMA_HOST}
+  #     PMA_USER: ${PMA_USER}
+  #     PMA_PASSWORD: ${PMA_PASSWORD}
+  #     UPLOAD_LIMIT: ${PHP_UPLOAD_MAX_FILESIZE}
+  #   ports:
+  #     - "127.0.0.1:${PHPMYADMIN_PORT}:80"
+  #   depends_on:
+  #     - db
+  #   networks:
+  #     - frontend
+  #     - backend
+  #   healthcheck:
+  #     test: [ "CMD", "curl", "-f", "http://localhost" ]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+networks:
+  frontend:
+    driver: bridge
+    name: damp-frontend
+  backend:
+    driver: bridge
+    internal: true
+    name: damp-backend
+
+volumes:
+  persistent:
