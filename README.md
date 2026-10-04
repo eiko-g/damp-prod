@@ -19,6 +19,18 @@ PHP 的默认时区为 `Asia/Shanghai`。
 
 建议安装 [acme.sh](https://github.com/acmesh-official/acme.sh/wiki/%E8%AF%B4%E6%98%8E)，然后使用 `sudo -u <当前用户名> ./addvhost.sh` 来 **以当前用户权限** 添加虚拟主机配置。
 
+要使用 IPv6 的话，得去编辑 `/etc/docker/daemon.json`，加入下面的内容：
+
+```json
+{
+  "ipv6": true,
+  "fixed-cidr-v6": "fd00::/64",
+  "ip6tables": true
+}
+```
+
+然后 `sudo systemctl restart docker` 重启一下 Docker。
+
 ## PHP-Apache
 具体配置基本在 `./dockerfile` 里了，使用 `8.5`，安装 `composer`，默认使用 `php.ini-production` 配置。
 

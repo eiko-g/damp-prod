@@ -51,8 +51,8 @@ services:
       # MARIADB_USER: ${MARIADB_USER}
       # MARIADB_PASSWORD: ${MARIADB_PASSWORD}
     ports:
-      - "0.0.0.0:${APACHE_PORT}:80"
-      - "0.0.0.0:${APACHE_PORT_SSL}:443"
+      - "${APACHE_PORT}:80"
+      - "${APACHE_PORT_SSL}:443"
     volumes:
       # 网站目录
       - ./userdata/wwwroot:/var/www/html
@@ -99,6 +99,10 @@ networks:
   frontend:
     driver: bridge
     name: damp-frontend
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: "fd00:1::/64"
   backend:
     driver: bridge
     internal: true
