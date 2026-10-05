@@ -38,8 +38,9 @@ ACCESS_LOG="/var/log/apache2/${DOMAIN}.access.%Y-%m-%d-%H_%M_%S.log"
 ERROR_LOG="/var/log/apache2/${DOMAIN}.error.%Y-%m-%d-%H_%M_%S.log"
 mkdir -p "$SITE_ROOT"
 
-echo "ℹ️ 添加占位网页"
-cat > "$SITE_ROOT/index.php" <<EOF
+if [ -z "$(ls -A "$SITE_ROOT")" ]; then
+  echo "ℹ️ 添加占位网页"
+  cat > "$SITE_ROOT/index.php" <<EOF
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -52,6 +53,9 @@ cat > "$SITE_ROOT/index.php" <<EOF
 </body>
 </html>
 EOF
+else
+  echo "ℹ️ 目录非空，跳过占位网页：${SITE_ROOT}"
+fi
 
 echo "ℹ️ 添加 vhosts 配置"
 cat > "$VHOST_FILE" <<EOF
