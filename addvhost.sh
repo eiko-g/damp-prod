@@ -92,6 +92,8 @@ else
 fi
 
 echo "ℹ️ 申请证书"
+echo "若一直 pending 的话，可尝试修改默认签发方至 Let's Encrypt"
+echo "acme.sh --set-default-ca --server letsencrypt"
 # 生成证书
 "$ACME_BIN" --issue -d "$DOMAIN" -d "www.$DOMAIN"  --webroot "$SITE_ROOT" --log
 # 安装到指定目录
@@ -102,8 +104,6 @@ echo "ℹ️ 申请证书"
   --ca-file "$SSL_DIR/${DOMAIN}.ca.crt"
 
 echo "ℹ️ 给 vhosts 添加 SSL 内容"
-echo "若一直 pending 的话，可尝试修改默认签发方至 Let's Encrypt"
-echo "acme.sh --set-default-ca --server letsencrypt"
 cat > "$VHOST_FILE" <<EOF
 <VirtualHost *:80>
     ServerName ${DOMAIN}
