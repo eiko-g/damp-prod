@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 本脚本由 AI 辅助生成，再由我修改，似乎没啥问题
+# 本脚本由 AI 辅助生成，再由我检查修改，似乎没啥问题
 set -euo pipefail
 
 # 检查是否以 root 权限运行
@@ -7,13 +7,13 @@ set -euo pipefail
 #   echo "⚠️ 请使用 root 权限运行此脚本"
 #   exit 1
 # fi
-sudo -v &>/dev/null
-if [ $? != 0 ]; then
-  echo "$(whoami) is not sudo user"
-  exit -1
-else
-  echo "$(whoami) is sudo user"
-fi
+# sudo -v &>/dev/null
+# if [ $? != 0 ]; then
+#   echo "$(whoami) is not sudo user"
+#   exit -1
+# else
+#   echo "$(whoami) is sudo user"
+# fi
 
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,16 +31,31 @@ if [ -z "$DOMAIN" ]; then
   exit 1
 fi
 
+read -p "ℹ️ 请输入 DocumentRoot 相对目录（留空则使用站点根目录，例如：/public）：" DOC_ROOT_SUBDIR
+# 规范化：去空白、去首尾斜杠，非空时统一为 /xxx 形式
+DOC_ROOT_SUBDIR="$(printf '%s' "${DOC_ROOT_SUBDIR:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+DOC_ROOT_SUBDIR="${DOC_ROOT_SUBDIR#/}"
+DOC_ROOT_SUBDIR="${DOC_ROOT_SUBDIR%/}"
+if [ -n "$DOC_ROOT_SUBDIR" ]; then
+  DOC_ROOT_SUBDIR="/$DOC_ROOT_SUBDIR"
+fi
+if [[ "$DOC_ROOT_SUBDIR" == *".."* ]]; then
+  echo "❌ 相对目录不能包含 .."
+  exit 1
+fi
+
 SITE_ROOT="$WEBROOT_DIR/${DOMAIN}"
 CONTAINER_SITE_ROOT="/var/www/html/${DOMAIN}"
+DOC_ROOT="$SITE_ROOT${DOC_ROOT_SUBDIR}"
+CONTAINER_DOC_ROOT="$CONTAINER_SITE_ROOT${DOC_ROOT_SUBDIR}"
 VHOST_FILE="$VHOST_DIR/${DOMAIN}.conf"
 ACCESS_LOG="/var/log/apache2/${DOMAIN}.access.%Y-%m-%d-%H_%M_%S.log"
 ERROR_LOG="/var/log/apache2/${DOMAIN}.error.%Y-%m-%d-%H_%M_%S.log"
-mkdir -p "$SITE_ROOT"
+mkdir -p "$DOC_ROOT"
 
-if [ -z "$(ls -A "$SITE_ROOT")" ]; then
-  echo "ℹ️ 添加占位网页"
-  cat > "$SITE_ROOT/index.php" <<EOF
+if [ -z "$(ls -A "$DOC_ROOT")" ]; then
+  echo "ℹ️ 添加占位网页：${DOC_ROOT}"
+  cat > "$DOC_ROOT/index.php" <<EOF
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -54,17 +69,19 @@ if [ -z "$(ls -A "$SITE_ROOT")" ]; then
 </html>
 EOF
 else
-  echo "ℹ️ 目录非空，跳过占位网页：${SITE_ROOT}"
+  echo "ℹ️ 目录非空，跳过占位网页：${DOC_ROOT}"
 fi
+
+echo "ℹ️ DocumentRoot：${CONTAINER_DOC_ROOT}"
 
 echo "ℹ️ 添加 vhosts 配置"
 cat > "$VHOST_FILE" <<EOF
 <VirtualHost *:80>
     ServerName ${DOMAIN}
     ServerAlias www.${DOMAIN}
-    DocumentRoot "${CONTAINER_SITE_ROOT}"
+    DocumentRoot "${CONTAINER_DOC_ROOT}"
     php_admin_value open_basedir "${CONTAINER_SITE_ROOT}:/tmp/:/var/tmp/:/proc/"
-    <Directory "${CONTAINER_SITE_ROOT}">
+    <Directory "${CONTAINER_DOC_ROOT}">
         Options FollowSymLinks
         AllowOverride All
         Require all granted
@@ -95,7 +112,7 @@ echo "ℹ️ 申请证书"
 echo "若一直 pending 的话，可尝试修改默认签发方至 Let's Encrypt"
 echo "acme.sh --set-default-ca --server letsencrypt"
 # 生成证书
-"$ACME_BIN" --issue -d "$DOMAIN" -d "www.$DOMAIN"  --webroot "$SITE_ROOT" --log
+"$ACME_BIN" --issue -d "$DOMAIN" -d "www.$DOMAIN"  --webroot "$DOC_ROOT" --log
 # 安装到指定目录
 "$ACME_BIN" --install-cert -d "$DOMAIN" \
   --cert-file "$SSL_DIR/${DOMAIN}.crt" \
@@ -108,9 +125,9 @@ cat > "$VHOST_FILE" <<EOF
 <VirtualHost *:80>
     ServerName ${DOMAIN}
     ServerAlias www.${DOMAIN}
-    DocumentRoot "${CONTAINER_SITE_ROOT}"
+    DocumentRoot "${CONTAINER_DOC_ROOT}"
     php_admin_value open_basedir "${CONTAINER_SITE_ROOT}:/tmp/:/var/tmp/:/proc/"
-    <Directory "${CONTAINER_SITE_ROOT}">
+    <Directory "${CONTAINER_DOC_ROOT}">
         Options FollowSymLinks
         AllowOverride All
         Require all granted
@@ -120,13 +137,13 @@ cat > "$VHOST_FILE" <<EOF
 <VirtualHost *:443>
     ServerName ${DOMAIN}
     ServerAlias www.${DOMAIN}
-    DocumentRoot "${CONTAINER_SITE_ROOT}"
+    DocumentRoot "${CONTAINER_DOC_ROOT}"
     php_admin_value open_basedir "${CONTAINER_SITE_ROOT}:/tmp/:/var/tmp/:/proc/"
     SSLEngine on
     SSLCertificateFile "/etc/apache2/ssl/${DOMAIN}.fullchain.crt"
     SSLCertificateKeyFile "/etc/apache2/ssl/${DOMAIN}.key"
 
-    <Directory "${CONTAINER_SITE_ROOT}">
+    <Directory "${CONTAINER_DOC_ROOT}">
         Options FollowSymLinks
         AllowOverride All
         Require all granted
