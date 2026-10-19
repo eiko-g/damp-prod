@@ -17,6 +17,39 @@ set -euo pipefail
 
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 判断 Docker 是否运行在 root 模式（rootless 模式下当前用户可直接访问 daemon）
+docker_runs_as_root() {
+  # 手动指定了 DOCKER_HOST，或存在 rootless 的 socket，都不算 root 模式
+  if [ -n "${DOCKER_HOST:-}" ]; then
+    return 1
+  fi
+  if [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock" ]; then
+    return 1
+  fi
+  # 无需 sudo 即可访问 daemon，说明是 rootless 或当前用户已在 docker 组
+  if docker info >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
+}
+
+# root 模式下 docker 需要 root 权限，但本脚本生成的配置、站点和证书目录必须归属当前用户，
+# 否则容器内的 www-data 无法读写，因此禁止直接以 root 身份执行
+if [ "$(id -u)" -eq 0 ] && command -v docker >/dev/null 2>&1 && docker_runs_as_root; then
+  RUN_USER="${SUDO_USER:-}"
+  if [ -z "$RUN_USER" ]; then
+    RUN_USER="$(logname 2>/dev/null || true)"
+  fi
+  if [ -z "$RUN_USER" ] || [ "$RUN_USER" = "root" ]; then
+    RUN_USER="<当前用户名>"
+  fi
+  echo "❌ 检测到 Docker 运行在 root 模式（需要 root 权限才能操作 Docker）"
+  echo "   请勿直接以 root 身份执行本脚本，否则生成的 vhost 配置与站点目录会归属 root，容器内可能无法读写"
+  echo "   请改用当前用户权限执行：sudo -u ${RUN_USER} ./addvhost.sh"
+  exit 1
+fi
+
 VHOST_DIR="$ROOT_DIR/userdata/httpd_conf/vhosts"
 LOG_DIR="$ROOT_DIR/logs/httpd_log"
 SSL_DIR="$ROOT_DIR/userdata/httpd_conf/ssl"

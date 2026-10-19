@@ -1,7 +1,7 @@
 # Docker Apache + MariaDB + PHP Prod Env
 自用配置，为 `php:8.5-apache` + `mariadb:lts`，加个 `phpmyadmin:latest`。
 
-默认 Docker 是运行在 root 模式的，如果你弄了 [rootless mode](https://docs.docker.com/engine/security/rootless/) 的话，就要做点修改了，具体是啥得你自己研究。
+默认 Docker 是运行在 root 模式的，如果你弄了 [rootless mode](https://docs.docker.com/engine/security/rootless/) 的话，~~就要做点修改了，具体是啥得你自己研究。~~ 已让 AI 改了改脚本，应该能直接用了。
 
 快速使用：
 ```bash
@@ -18,6 +18,8 @@ sudo docker compose build
 PHP 的默认时区为 `Asia/Shanghai`。
 
 建议安装 [acme.sh](https://github.com/acmesh-official/acme.sh/wiki/%E8%AF%B4%E6%98%8E)，然后使用 `sudo -u <当前用户名> ./addvhost.sh` 来 **以当前用户权限** 添加虚拟主机配置。
+
+脚本会自动检查 Docker 运行模式：若 Docker 运行在 root 模式（需要 root 权限才能操作 Docker），而你又直接以 root 身份执行 `sudo ./addvhost.sh`，脚本会退出并提示改用上面的 `sudo -u <当前用户名> ./addvhost.sh`，避免生成的 vhost 配置与站点目录归属 root。
 
 要使用 IPv6 的话，得去编辑 `/etc/docker/daemon.json`，加入下面的内容：
 
