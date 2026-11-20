@@ -6,6 +6,22 @@ ARG PHP_UPLOAD_MAX_FILESIZE=20M
 ARG PHP_POST_MAX_SIZE=20M
 ARG PHP_TIMEZONE=Asia/Shanghai
 
+# OPCache（2C2G 小机器上开着能省不少 CPU）
+ARG PHP_OPCACHE_MEMORY=128M
+ARG PHP_OPCACHE_MAX_FILES=10000
+ARG PHP_OPCACHE_VALIDATE_TIMESTAMPS=1
+ARG PHP_OPCACHE_REVALIDATE_FREQ=2
+ARG PHP_OPCACHE_JIT=off
+ARG PHP_OPCACHE_JIT_BUFFER_SIZE=0
+
+# Apache prefork（每个 worker = 一个 PHP 进程，2G 内存下数量要压住）
+ARG APACHE_START_SERVERS=5
+ARG APACHE_MIN_SPARE_SERVERS=5
+ARG APACHE_MAX_SPARE_SERVERS=8
+ARG APACHE_MAX_REQUEST_WORKERS=20
+ARG APACHE_KEEPALIVE_TIMEOUT=3
+ARG APACHE_MAX_KEEPALIVE_REQUESTS=100
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 # 安装 Composer，环境变量是 Docker 镜像内使用时用的，不然有 Warning
@@ -59,8 +75,42 @@ RUN echo "memory_limit = ${PHP_MEMORY_LIMIT}" >> /usr/local/etc/php/conf.d/docke
     && echo "expose_php = off" >>  /usr/local/etc/php/conf.d/docker-php-expose-php.ini \
     && echo "date.timezone = ${PHP_TIMEZONE}" >>  /usr/local/etc/php/conf.d/docker-php-date-timezone.ini
 
+# OPCache 的配置。官方镜像里 opcache 是编译好了但默认没启用的，有 .so 才启用
+RUN EXT_DIR="$(php -r 'echo ini_get("extension_dir");')" \
+    && if [ -f "$EXT_DIR/opcache.so" ] && ! php -m | grep -qi '^Zend OPcache$'; then docker-php-ext-enable opcache; fi \
+    && { \
+        echo "opcache.enable = 1"; \
+        echo "opcache.enable_cli = 0"; \
+        echo "opcache.memory_consumption = ${PHP_OPCACHE_MEMORY}"; \
+        echo "opcache.max_accelerated_files = ${PHP_OPCACHE_MAX_FILES}"; \
+        echo "opcache.validate_timestamps = ${PHP_OPCACHE_VALIDATE_TIMESTAMPS}"; \
+        echo "opcache.revalidate_freq = ${PHP_OPCACHE_REVALIDATE_FREQ}"; \
+        echo "opcache.jit = ${PHP_OPCACHE_JIT}"; \
+        echo "opcache.jit_buffer_size = ${PHP_OPCACHE_JIT_BUFFER_SIZE}"; \
+    } > /usr/local/etc/php/conf.d/docker-php-opcache.ini
+
 # Apache 的配置
 RUN a2enmod rewrite headers ssl expires
+
+# Apache prefork 调优：ServerLimit 自动跟着 MaxRequestWorkers 走，省得还要多改一个值
+RUN MAX_WORKERS="${APACHE_MAX_REQUEST_WORKERS}" \
+    && SERVER_LIMIT=$(( MAX_WORKERS + 4 )) \
+    && printf '%s\n' \
+        "<IfModule mpm_prefork_module>" \
+        "    StartServers           ${APACHE_START_SERVERS}" \
+        "    MinSpareServers        ${APACHE_MIN_SPARE_SERVERS}" \
+        "    MaxSpareServers        ${APACHE_MAX_SPARE_SERVERS}" \
+        "    ServerLimit            ${SERVER_LIMIT}" \
+        "    MaxRequestWorkers      ${MAX_WORKERS}" \
+        "    MaxConnectionsPerChild 0" \
+        "</IfModule>" \
+        > /etc/apache2/mods-available/mpm_prefork.conf \
+    && printf '%s\n' \
+        "KeepAlive On" \
+        "MaxKeepAliveRequests ${APACHE_MAX_KEEPALIVE_REQUESTS}" \
+        "KeepAliveTimeout ${APACHE_KEEPALIVE_TIMEOUT}" \
+        > /etc/apache2/conf-available/zz-damp-tuning.conf \
+    && a2enconf zz-damp-tuning
 RUN sed -i 's/ServerTokens OS/ServerTokens Prod/' /etc/apache2/conf-available/security.conf \
     && sed -i 's/ServerSignature On/ServerSignature Off/' /etc/apache2/conf-available/security.conf
 

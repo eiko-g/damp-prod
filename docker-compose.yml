@@ -1,13 +1,29 @@
+# 2C2G（2 核 2G 内存）VPS 优化版
+# 所有可调参数都集中在 .env（见 .env.example），这里统一用 ${VAR:-默认值} 兜底，
+# 所以不填 .env 也能按 2C2G 的默认值跑起来；调参只改 .env，不用动这个文件。
+# 注意：www 的 build.args 是构建期参数，改完要 docker compose build 才生效。
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${LOG_MAX_SIZE:-10m}"
+    max-file: "${LOG_MAX_FILE:-3}"
+
 services:
   db:
     image: mariadb:lts
     restart: unless-stopped
     container_name: "damp-mariadb-lts"
     ports:
-      - "127.0.0.1:${MARIADB_PORT}:3306"
+      - "${MARIADB_BIND_IP:-127.0.0.1}:${MARIADB_PORT:-3306}:3306"
+    # 2C2G：给 DB 一个内存上限，避免把整机吃满被 OOM
+    mem_limit: ${DB_MEM_LIMIT:-900m}
+    cpus: ${DB_CPUS:-1.0}
+    stop_grace_period: 30s
+    logging: *default-logging
     # 设置 UID 和 GID，不然权限出错
     user: "1000:1000"
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       # MARIADB_DATABASE: ${MARIADB_DATABASE}
       # MARIADB_USER: ${MARIADB_USER}
       # MARIADB_PASSWORD: ${MARIADB_PASSWORD}
@@ -15,6 +31,23 @@ services:
       # 随机 root 密码，跟指定密码选一个开，生成的密码似乎会写在 log 里，见：
       # https://hub.docker.com/_/mariadb#starting-using-a-minimal-configuration
       # MARIADB_RANDOM_ROOT_PASSWORD: 1
+    # MariaDB 2C2G 调参：走启动参数，entrypoint 会自动在前面补 mariadbd
+    # 数值都在 .env 里改；项不想调就注释掉（MariaDB 已移除的项别加，会只剩警告）
+    command:
+      - "--innodb-buffer-pool-size=${DB_INNODB_BUFFER_POOL_SIZE:-384M}"
+      - "--innodb-log-file-size=${DB_INNODB_LOG_FILE_SIZE:-64M}"
+      - "--innodb-log-buffer-size=${DB_INNODB_LOG_BUFFER_SIZE:-16M}"
+      - "--innodb-flush-log-at-trx-commit=${DB_INNODB_FLUSH_LOG_AT_TRX_COMMIT:-1}"
+      - "--innodb-io-capacity=${DB_INNODB_IO_CAPACITY:-200}"
+      - "--max-connections=${DB_MAX_CONNECTIONS:-50}"
+      - "--table-open-cache=${DB_TABLE_OPEN_CACHE:-400}"
+      - "--table-definition-cache=${DB_TABLE_DEFINITION_CACHE:-400}"
+      - "--tmp-table-size=${DB_TMP_TABLE_SIZE:-32M}"
+      - "--max-heap-table-size=${DB_MAX_HEAP_TABLE_SIZE:-32M}"
+      - "--key-buffer-size=${DB_KEY_BUFFER_SIZE:-16M}"
+      - "--performance-schema=${DB_PERFORMANCE_SCHEMA:-OFF}"
+      - "--slow-query-log=${DB_SLOW_QUERY_LOG:-ON}"
+      - "--long-query-time=${DB_LONG_QUERY_TIME:-2}"
     volumes:
       # 预制数据库，新安装的可以丢这里自动加载
       - ./userdata/sql_dump:/docker-entrypoint-initdb.d:ro
@@ -29,23 +62,42 @@ services:
       - backend
     healthcheck:
       test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
-      interval: 10s
+      interval: 20s
       timeout: 5s
       retries: 5
+      # 首次初始化（导入 sql_dump）可能比较慢，给小机器留足时间
+      start_period: 60s
 
   www:
     build:
       # 意思就是读根目录的 dockerfile 来 build
       context: .
       args:
-        PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT}
-        PHP_MAX_EXECUTION_TIME: ${PHP_MAX_EXECUTION_TIME}
-        PHP_UPLOAD_MAX_FILESIZE: ${PHP_UPLOAD_MAX_FILESIZE}
-        PHP_POST_MAX_SIZE: ${PHP_POST_MAX_SIZE}
-        PHP_TIMEZONE: ${PHP_TIMEZONE}
+        PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT:-256M}
+        PHP_MAX_EXECUTION_TIME: ${PHP_MAX_EXECUTION_TIME:-60}
+        PHP_UPLOAD_MAX_FILESIZE: ${PHP_UPLOAD_MAX_FILESIZE:-20M}
+        PHP_POST_MAX_SIZE: ${PHP_POST_MAX_SIZE:-20M}
+        PHP_TIMEZONE: ${PHP_TIMEZONE:-Asia/Shanghai}
+        PHP_OPCACHE_MEMORY: ${PHP_OPCACHE_MEMORY:-128M}
+        PHP_OPCACHE_MAX_FILES: ${PHP_OPCACHE_MAX_FILES:-10000}
+        PHP_OPCACHE_VALIDATE_TIMESTAMPS: ${PHP_OPCACHE_VALIDATE_TIMESTAMPS:-1}
+        PHP_OPCACHE_REVALIDATE_FREQ: ${PHP_OPCACHE_REVALIDATE_FREQ:-2}
+        PHP_OPCACHE_JIT: ${PHP_OPCACHE_JIT:-off}
+        PHP_OPCACHE_JIT_BUFFER_SIZE: ${PHP_OPCACHE_JIT_BUFFER_SIZE:-0}
+        APACHE_START_SERVERS: ${APACHE_START_SERVERS:-5}
+        APACHE_MIN_SPARE_SERVERS: ${APACHE_MIN_SPARE_SERVERS:-5}
+        APACHE_MAX_SPARE_SERVERS: ${APACHE_MAX_SPARE_SERVERS:-8}
+        APACHE_MAX_REQUEST_WORKERS: ${APACHE_MAX_REQUEST_WORKERS:-20}
+        APACHE_KEEPALIVE_TIMEOUT: ${APACHE_KEEPALIVE_TIMEOUT:-3}
+        APACHE_MAX_KEEPALIVE_REQUESTS: ${APACHE_MAX_KEEPALIVE_REQUESTS:-100}
     restart: unless-stopped
     container_name: "damp-php85-apache"
+    # 2C2G：Apache prefork 的每个 worker 都是一个 PHP 进程，限制住内存和 CPU
+    mem_limit: ${WWW_MEM_LIMIT:-768m}
+    cpus: ${WWW_CPUS:-1.5}
+    logging: *default-logging
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       MARIADB_HOST: db
       # MARIADB_DATABASE: ${MARIADB_DATABASE}
       # MARIADB_USER: ${MARIADB_USER}
@@ -63,7 +115,9 @@ services:
       # 好像设置了日志目录会爆炸，先不用了
       # - ./logs/httpd_log:/var/log/apache2
     depends_on:
-      - db
+      db:
+        # 等 db 健康再启动，避免小机器上 www 反复重启空转 CPU
+        condition: service_healthy
     networks:
       - frontend
       - backend
@@ -72,6 +126,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 20s
   # 写是写了，但是先不用
   # phpmyadmin:
   #   image: phpmyadmin:latest
